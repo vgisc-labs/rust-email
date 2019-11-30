@@ -9,6 +9,7 @@ use super::mimeheaders::{
 };
 
 use std::collections::HashMap;
+use std::fmt;
 
 use encoding::label::encoding_from_whatwg_label;
 use encoding::DecoderTrap;
@@ -36,10 +37,18 @@ pub enum MimeMultipartType {
     ///
     /// As defined by Section 5.1.5 of RFC 2046
     Digest,
+    /// An encyrpted multipart composed by two independent entries.
+    ///
+    /// As defined by Section 2.2 of RFC 1847
+    Encrypted,
     /// Entry order does not matter, and could be displayed simultaneously.
     ///
     /// As defined by Section 5.1.6 of RFC 2046
     Parallel,
+    /// An signed multipart composed by two independent entries.
+    ///
+    /// As defined by Section 2.1 of RFC 1847
+    Signed,
 }
 
 impl MimeMultipartType {
@@ -50,6 +59,8 @@ impl MimeMultipartType {
             ("multipart", "alternative") => Some(MimeMultipartType::Alternative),
             ("multipart", "digest") => Some(MimeMultipartType::Digest),
             ("multipart", "parallel") => Some(MimeMultipartType::Parallel),
+            ("multipart", "encrypted") => Some(MimeMultipartType::Encrypted),
+            ("multipart", "signed") => Some(MimeMultipartType::Signed),
             ("multipart", "mixed") | ("multipart", _) => Some(MimeMultipartType::Mixed),
             _ => None,
         }
@@ -62,8 +73,17 @@ impl MimeMultipartType {
             MimeMultipartType::Mixed => (multipart, "mixed".to_string()),
             MimeMultipartType::Alternative => (multipart, "alternative".to_string()),
             MimeMultipartType::Digest => (multipart, "digest".to_string()),
+            MimeMultipartType::Encrypted => (multipart, "encrypted".to_string()),
             MimeMultipartType::Parallel => (multipart, "parallel".to_string()),
+            MimeMultipartType::Signed => (multipart, "signed".to_string()),
         }
+    }
+}
+
+impl fmt::Display for MimeMultipartType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let ct = self.to_content_type();
+        write!(f, "{}/{}", ct.0, ct.1)
     }
 }
 
@@ -147,28 +167,63 @@ impl MimeMessage {
     /// When certain properties of the message are modified, the headers
     /// used to represent them are not automatically updated.
     /// Call this if these are changed.
+    ///
+    /// If the message has children:
+    /// if `message_type` is set, it adds a new `Content-Type` header of type
+    /// `message_type`. Note that `message_type` does not allow parameters.
+    /// otherwise, if it has a `Content-Type` header, use it as it is,
+    /// otherwise, assume the `Content-Type` is 'multipart/mixed'.
+    /// Finally, update the `Content-Type` header with the `boundary`.
+    /// It does not update the `message_type`
     pub fn update_headers(&mut self) {
-        if self.children.len() > 0 && self.message_type.is_none() {
-            // This should be a multipart message, so make it so!
-            self.message_type = Some(MimeMultipartType::Mixed);
-        }
 
-        if let Some(message_type) = self.message_type {
-            // We are some form of multi-part message, so update our
-            // Content-Type header.
-            let mut params = HashMap::new();
-            params.insert("boundary".to_string(), self.boundary.clone());
-            let ct_header = MimeContentTypeHeader {
-                content_type: message_type.to_content_type(),
-                params: params
-            };
-            self.headers.insert(Header::new_with_value(
-                "Content-Type".to_string(),
-                ct_header
-            ).unwrap());
+        if self.children.len() > 0 {
+            // Since a single header can not be replace, clone all the headers
+            // except th `Content-Type`, which needs will be added later.
+            let mut headers = self.headers_without_content_type();
+            // Instead of returning the value of the `Content-Type` as a tuple,
+            // return it as String since it could have params.
+            let ct_value: String;
+            if let Some(message_type) = self.message_type {
+                // Use `message_type` as `Content-Type` if present
+                ct_value = message_type.to_string();
+            } else {
+                ct_value = match self.headers.get("Content-Type".to_string()) {
+                    // Use `Content-Type` header if present
+                    Some(ct_header) => ct_header.get_value().unwrap(),
+                    // Or assume it is `multipart/mixed`.
+                    None => MimeMultipartType::Mixed.to_string()
+                };
+            }
+            // Insert the boundary param in the `Content-Type` header.
+            // A MimeContentTypeHeader could be created, but it is
+            // converted back to string when inserted into the headers
+            let ct_value_boundary = format!("{}; {}=\"{}\"",
+                                            ct_value, "boundary".to_string(),
+                                            self.boundary.clone());
+            let header = Header::new("Content-Type".to_string(),
+                                     ct_value_boundary);
+            // Add the `Content-Type` with the boundary.
+            headers.insert(header);
+            // And replace all the headers.
+            self.headers = headers;
         }
     }
 
+    /// Returns a copy of the headers without the `Content-Type` header.
+    ///
+    /// It used to add a parameter to the `Content-Type` header, by cloning
+    /// all the headers except that one and then adding it.
+    fn headers_without_content_type(&self) -> HeaderMap {
+        let mut header_map = HeaderMap::new();
+        let headers: Vec<&Header> = self.headers.iter()
+            .filter(|header| !header.to_string().starts_with("Content-Type"))
+            .collect();
+        for header in headers {
+            header_map.insert(header.clone());
+        }
+        header_map
+    }
 
     /// Parse `s` into a MimeMessage.
     ///
@@ -626,6 +681,72 @@ mod tests {
                 }),
                 name: "Distinguished boundary",
             },
+            ParseTest {
+                input: "From: joe@example.org\n\
+                        To: john@example.org\n\
+                        Content-Type: multipart/encrypted; protocol=\"application/pgp-encrypted\"; boundary=\"foo\"\n\
+                        \n\
+                        \n\
+                        Parent\n\
+                        --foo\n\
+                        Hello!\n\
+                        --foo\n\
+                        Other\n",
+                output: Some(MessageTestResult {
+                    headers: vec![
+                        ("From", "joe@example.org"),
+                        ("To", "john@example.org"),
+                        ("Content-Type", "multipart/encrypted; protocol=\"application/pgp-encrypted\"; boundary=\"foo\""),
+                    ],
+                    body: "\nParent\n",
+                    children: vec![
+                        MessageTestResult {
+                            headers: vec![ ],
+                            body: "Hello!\n",
+                            children: vec![],
+                        },
+                        MessageTestResult {
+                            headers: vec![ ],
+                            body: "Other\n",
+                            children: vec![],
+                        },
+                    ],
+                }),
+                name: "Distinguished boundary",
+            },
+            ParseTest {
+                input: "From: joe@example.org\n\
+                        To: john@example.org\n\
+                        Content-Type: multipart/signed; protocol=\"application/pgp-signature\"; boundary=\"foo\"\n\
+                        \n\
+                        \n\
+                        Parent\n\
+                        --foo\n\
+                        Hello!\n\
+                        --foo\n\
+                        Other\n",
+                output: Some(MessageTestResult {
+                    headers: vec![
+                        ("From", "joe@example.org"),
+                        ("To", "john@example.org"),
+                        ("Content-Type", "multipart/signed; protocol=\"application/pgp-signature\"; boundary=\"foo\""),
+                    ],
+                    body: "\nParent\n",
+                    children: vec![
+                        MessageTestResult {
+                            headers: vec![ ],
+                            body: "Hello!\n",
+                            children: vec![],
+                        },
+                        MessageTestResult {
+                            headers: vec![ ],
+                            body: "Other\n",
+                            children: vec![],
+                        },
+                    ],
+                }),
+                name: "Signed",
+            },
 
         ];
 
@@ -701,6 +822,10 @@ mod tests {
                 result: Some(MimeMultipartType::Digest),
             },
             MultipartParseTest {
+                mime_type: ("multipart", "encrypted"),
+                result: Some(MimeMultipartType::Encrypted),
+            },
+            MultipartParseTest {
                 mime_type: ("multipart", "parallel"),
                 result: Some(MimeMultipartType::Parallel),
             },
@@ -708,6 +833,10 @@ mod tests {
             MultipartParseTest {
                 mime_type: ("multipart", "potato"),
                 result: Some(MimeMultipartType::Mixed),
+            },
+            MultipartParseTest {
+                mime_type: ("multipart", "signed"),
+                result: Some(MimeMultipartType::Signed),
             },
             // Test failure state
             MultipartParseTest {
@@ -732,7 +861,9 @@ mod tests {
         assert_eq!(MimeMultipartType::Mixed.to_content_type(),     (multipart.clone(), "mixed".to_string()));
         assert_eq!(MimeMultipartType::Alternative.to_content_type(), (multipart.clone(), "alternative".to_string()));
         assert_eq!(MimeMultipartType::Digest.to_content_type(),    (multipart.clone(), "digest".to_string()));
+        assert_eq!(MimeMultipartType::Encrypted.to_content_type(),    (multipart.clone(), "encrypted".to_string()));
         assert_eq!(MimeMultipartType::Parallel.to_content_type(),  (multipart.clone(), "parallel".to_string()));
+        assert_eq!(MimeMultipartType::Signed.to_content_type(),    (multipart.clone(), "signed".to_string()));
     }
 
     #[test]
@@ -740,6 +871,86 @@ mod tests {
         let message = MimeMessage::new("Body".to_string());
         // This is random, so we can only really check that it's the expected length
         assert_eq!(message.boundary.len(), super::BOUNDARY_LENGTH);
+    }
+
+    #[test]
+    fn test_headers_without_content_type() {
+        let mime = MimeMessage::parse(
+            "Content-Type: multipart/signed; protocol=pgp-encrypted\nBody"
+        ).unwrap();
+        assert_eq!(mime.headers.len(), 1);
+        let ct_value: String = mime.headers.get("Content-Type".to_string())
+            .unwrap().get_value().unwrap();
+        assert_eq!(ct_value, "multipart/signed; protocol=pgp-encrypted");
+        let headers = mime.headers_without_content_type();
+        assert_eq!(headers.len(), 0);
+    }
+
+    #[test]
+    fn test_multipart_encrypted() {
+        let text = "From: Alice Lovelace <alice@openpgp.example>
+To: Bob Babbage <bob@openpgp.example>
+Subject: Encrypted message
+MIME-Version: 1.0
+Content-Type: multipart/encrypted; protocol=\"application/pgp-encrypted\";
+ boundary=\"boundary_encrypted\"
+
+This is an OpenPGP/MIME encrypted message (RFC 4880 and 3156)
+--boundary_encrypted
+Content-Type: application/pgp-encrypted
+Content-Description: PGP/MIME version identification
+
+Version: 1
+
+--boundary_encrypted
+Content-Type: application/octet-stream; name=\"encrypted.asc\"
+Content-Description: OpenPGP encrypted message
+Content-Disposition: inline; filename=\"encrypted.asc\"
+
+-----BEGIN PGP MESSAGE-----
+-----END PGP MESSAGE-----
+
+--boundary_encrypted--";
+        let mime = MimeMessage::parse(text).unwrap();
+        assert_eq!(mime.message_type.unwrap(), MimeMultipartType::Encrypted);
+        assert_eq!(mime.headers.len(), 5);
+        assert_eq!(mime.body,
+                   "This is an OpenPGP/MIME encrypted message \
+                    (RFC 4880 and 3156)\n");
+        assert_eq!(mime.children.len(), 2);
+        // XXX: The original boundary should have been removed, lettre does it.
+        assert_eq!(mime.children[1].body,
+                   "-----BEGIN PGP MESSAGE-----\n\
+                    -----END PGP MESSAGE-----\n\n--boundary_encrypted--");
+
+        // XXX: parse add extra new lines.
+        assert_eq!(mime.children[0].body, "Version: 1\n\n");
+        assert_eq!(mime.boundary, "boundary_encrypted");
+
+        let mime2 = MimeMessage::parse(&mime.as_string()).unwrap();
+        assert_eq!(format!("{}\r\n", mime.body), mime2.body);
+        assert_eq!(mime.boundary, mime2.boundary);
+        assert_eq!(mime.message_type, mime2.message_type);
+
+        let ct: String = mime.headers.get("Content-Type".to_string())
+            .unwrap().get_value().unwrap();
+        assert_eq!(ct,
+                   "multipart/encrypted; \
+                    protocol=\"application/pgp-encrypted\";\
+                    boundary=\"boundary_encrypted\"");
+
+        // XXX: the space after `multipart` gets removed.
+        let ct2: String = mime2.headers.get("Content-Type".to_string())
+            .unwrap().get_value().unwrap();
+        assert_eq!(ct2,
+                   "multipart/encrypted;\
+                    protocol=\"application/pgp-encrypted\";\
+                    boundary=\"boundary_encrypted\"");
+
+        assert_eq!(format!("{}\r\n\r\n", mime.children[0].body),
+            mime2.children[0].body);
+        assert_eq!(mime.children[1].body,
+            format!("{}--boundary_encrypted--", mime2.children[1].body));
     }
 }
 
