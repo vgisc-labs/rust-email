@@ -266,25 +266,44 @@ impl HeaderMap {
 
     /// Replace an existing, or insert new.
     pub fn replace(&mut self, header: Header) {
-        if !self.headers.contains_key(&header.name) {
-            self.insert(header)
-        } else {
-            let header_name = header.name.clone();
-            let rc = Arc::new(header);
+        let header_name = header.name.clone();
+        let rc = Arc::new(header);
 
-            // and to the mapping between header names and values.
-            match self.headers.entry(header_name) {
-                Entry::Occupied(mut entry) => {
-                    entry.get_mut().clear();
-                    entry.get_mut().push(rc.clone());
-                }
-                Entry::Vacant(entry) => {
-                    // There haven't been any headers with this name
-                    // as of yet, so make a new list and push it in.
-                    let mut header_list = Vec::new();
-                    header_list.push(rc.clone());
-                    entry.insert(header_list);
-                }
+        if let Some(headers) = self.headers.get(&header_name) {
+            if let Some(header) = headers.first() {
+                let i = self
+                    .ordered_headers
+                    .iter()
+                    .position(|v| v == header)
+                    .expect("Inconsistent headers");
+
+                std::mem::replace(&mut self.ordered_headers[i], rc.clone());
+            }
+            for header in headers.iter().skip(1) {
+                let i = self
+                    .ordered_headers
+                    .iter()
+                    .position(|v| v == header)
+                    .expect("Inconsistent headers");
+                self.ordered_headers.remove(i);
+            }
+        } else {
+            // Add to the ordered list of headers, only if it does not yet exist
+            self.ordered_headers.push(rc.clone());
+        }
+
+        // and to the mapping between header names and values.
+        match self.headers.entry(header_name) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().clear();
+                entry.get_mut().push(rc.clone());
+            }
+            Entry::Vacant(entry) => {
+                // There haven't been any headers with this name
+                // as of yet, so make a new list and push it in.
+                let mut header_list = Vec::new();
+                header_list.push(rc.clone());
+                entry.insert(header_list);
             }
         }
     }
@@ -450,27 +469,30 @@ mod tests {
         headers.insert(Header::new("hello2".to_string(), "world20".to_string()));
 
         assert_eq!(headers.len(), 4);
-
+        assert_eq!(headers.find(&"hello1".to_string()).unwrap().len(), 2);
         headers.replace(Header::new("hello1".to_string(), "foo".to_string()));
+        assert_eq!(headers.find(&"hello1".to_string()).unwrap().len(), 1);
         assert_eq!(
             headers.get_value::<String>("hello1".to_string()).unwrap(),
             "foo".to_string()
         );
-        assert_eq!(headers.len(), 4);
+        assert_eq!(headers.len(), 3);
 
         headers.replace(Header::new("hello0".to_string(), "bar".to_string()));
+        assert_eq!(headers.find(&"hello0".to_string()).unwrap().len(), 1);
         assert_eq!(
             headers.get_value::<String>("hello0".to_string()).unwrap(),
             "bar".to_string()
         );
-        assert_eq!(headers.len(), 4);
+        assert_eq!(headers.len(), 3);
 
         headers.replace(Header::new("hello3".to_string(), "foobar".to_string()));
         assert_eq!(
             headers.get_value::<String>("hello3".to_string()).unwrap(),
             "foobar".to_string()
         );
-        assert_eq!(headers.len(), 5);
+        assert_eq!(headers.find(&"hello3".to_string()).unwrap().len(), 1);
+        assert_eq!(headers.len(), 4);
     }
 
     #[test]
