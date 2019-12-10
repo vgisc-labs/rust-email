@@ -84,7 +84,10 @@ impl Mailbox {
 impl fmt::Display for Mailbox {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self.name {
-            Some(ref name) => write!(fmt, "\"{}\" <{}>", name, self.address),
+            Some(ref name) => {
+                let s = encoded_words::encode(name, None, encoded_words::EncodingFlag::Shortest, None);
+                write!(fmt, "{} <{}>", s, self.address)
+            }
             None => write!(fmt, "<{}>", self.address),
         }
     }
@@ -287,7 +290,7 @@ mod tests {
         assert_eq!(addr.to_string(), "<foo@example.org>".to_string());
 
         let name_addr = Mailbox::new_with_name("Joe Blogs".to_string(), "foo@example.org".to_string());
-        assert_eq!(name_addr.to_string(), "\"Joe Blogs\" <foo@example.org>".to_string());
+        assert_eq!(name_addr.to_string(), "=?utf-8?q?Joe_Blogs?= <foo@example.org>");
     }
 
     #[test]
@@ -328,7 +331,7 @@ mod tests {
             Mailbox::new("joe@example.org".to_string()),
             Mailbox::new_with_name("John Doe".to_string(), "john@example.org".to_string()),
         ]);
-        assert_eq!(addr.to_string(), "group test: <joe@example.org>, \"John Doe\" <john@example.org>;".to_string());
+        assert_eq!(addr.to_string(), "group test: <joe@example.org>, =?utf-8?q?John_Doe?= <john@example.org>;");
     }
 
     #[test]
@@ -390,7 +393,7 @@ mod tests {
 
         let header = Header::new_with_value("From:".to_string(), addresses).unwrap();
         assert_eq!(header.get_value::<String>().unwrap(),
-                   "\"Joe Blogs\" <joe@example.org>, \"John Doe\" <john@example.org>".to_string());
+                   "Joe_Blogs <joe@example.org>, \r\n\tJohn_Doe <john@example.org>");
     }
 
     #[test]
@@ -403,7 +406,6 @@ mod tests {
 
         let header = Header::new_with_value("To".to_string(), addresses).unwrap();
         assert_eq!(&header.to_string()[..],
-                   "To: \"Joe Blogs\" <joe@example.org>, \"John Doe\" <john@example.org>, \r\n\
-                   \t\"Mr Black\" <mafia_black@example.org>");
+                   "To: =?utf-8?q?Joe_Blogs?= <joe@example.org>, \r\n\t=?utf-8?q?John_Doe?= <john@example.org>, \r\n\t=?utf-8?q?Mr_Black?= <mafia_black@example.org>");
     }
 }
