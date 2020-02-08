@@ -145,7 +145,7 @@ impl ToFoldedHeader for Vec<Address> {
         }
 
         // Clear up the final ", "
-        let real_len = header.len() - 2;
+        let real_len = header.len().saturating_sub(2);
         header.truncate(real_len);
 
         Ok(header)
@@ -407,5 +407,11 @@ mod tests {
         let header = Header::new_with_value("To".to_string(), addresses).unwrap();
         assert_eq!(&header.to_string()[..],
                    "To: =?utf-8?q?Joe_Blogs?= <joe@example.org>, \r\n\t=?utf-8?q?John_Doe?= <john@example.org>, \r\n\t=?utf-8?q?Mr_Black?= <mafia_black@example.org>");
+    }
+
+    #[test]
+    fn test_to_header_empty() {
+        let header = Header::new_with_value("To".to_string(), vec![]).unwrap();
+        assert_eq!(&header.to_string()[..], "To: ");
     }
 }
