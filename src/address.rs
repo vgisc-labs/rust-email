@@ -84,9 +84,17 @@ impl fmt::Display for Mailbox {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self.name {
             Some(ref name) => {
-                let s =
-                    encoded_words::encode(name, None, encoded_words::EncodingFlag::Shortest, None);
-                write!(fmt, "{} <{}>", s, self.address)
+                if name.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ') {
+                    write!(fmt, "{} <{}>", name, self.address)
+                } else {
+                    let s = encoded_words::encode(
+                        name,
+                        None,
+                        encoded_words::EncodingFlag::Shortest,
+                        None,
+                    );
+                    write!(fmt, "{} <{}>", s, self.address)
+                }
             }
             None => write!(fmt, "<{}>", self.address),
         }
@@ -309,10 +317,7 @@ mod tests {
 
         let name_addr =
             Mailbox::new_with_name("Joe Blogs".to_string(), "foo@example.org".to_string());
-        assert_eq!(
-            name_addr.to_string(),
-            "=?utf-8?q?Joe_Blogs?= <foo@example.org>"
-        );
+        assert_eq!(name_addr.to_string(), "Joe Blogs <foo@example.org>");
     }
 
     #[test]
@@ -362,7 +367,7 @@ mod tests {
         );
         assert_eq!(
             addr.to_string(),
-            "group test: <joe@example.org>, =?utf-8?q?John_Doe?= <john@example.org>;"
+            "group test: <joe@example.org>, John Doe <john@example.org>;"
         );
     }
 
@@ -465,7 +470,7 @@ mod tests {
         let header = Header::new_with_value("From:".to_string(), addresses).unwrap();
         assert_eq!(
             header.get_value::<String>().unwrap(),
-            "Joe_Blogs <joe@example.org>, \r\n\tJohn_Doe <john@example.org>"
+            "Joe Blogs <joe@example.org>, John Doe <john@example.org>"
         );
     }
 
@@ -482,12 +487,29 @@ mod tests {
 
         let header = Header::new_with_value("To".to_string(), addresses).unwrap();
         assert_eq!(&header.to_string()[..],
-                   "To: =?utf-8?q?Joe_Blogs?= <joe@example.org>, \r\n\t=?utf-8?q?John_Doe?= <john@example.org>, \r\n\t=?utf-8?q?Mr_Black?= <mafia_black@example.org>");
+                   "To: Joe Blogs <joe@example.org>, John Doe <john@example.org>, \r\n\tMr Black <mafia_black@example.org>");
     }
 
     #[test]
     fn test_to_header_empty() {
         let header = Header::new_with_value("To".to_string(), vec![]);
         assert!(header.is_err());
+    }
+
+    #[test]
+    fn test_escape_email_address() {
+        let display_name = "ä space";
+        let addr = "x@y.org";
+
+        assert!(!display_name.is_ascii());
+
+        let s = format!(
+            "{}",
+            Address::new_mailbox_with_name(display_name.to_string(), addr.to_string())
+        );
+
+        println!("{}", s);
+
+        assert_eq!(s, "=?utf-8?q?=C3=A4_space?= <x@y.org>");
     }
 }
