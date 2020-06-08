@@ -84,6 +84,7 @@ impl fmt::Display for Mailbox {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self.name {
             Some(ref name) => {
+                println!("dbg name {}", name);
                 if name.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ') {
                     write!(fmt, "{} <{}>", name, self.address)
                 } else {
