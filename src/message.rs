@@ -952,6 +952,67 @@ Content-Disposition: inline; filename=\"encrypted.asc\"
         assert_eq!(mime.children[1].body,
             format!("{}--boundary_encrypted--", mime2.children[1].body));
     }
+
+    #[test]
+    fn test_no_empty_line_in_header() {
+        use crate::Address;
+        use MimeMessage;
+        use Header;
+        let to_tuples = vec![
+            ("Nnnn", "nnn@ttttttttt.de"),
+            ("😀 ttttttt", "ttttttt@rrrrrr.net"),
+            ("dididididididi", "t@iiiiiii.org"),
+            ("Ttttttt", "oooooooooo@abcd.de"),
+            ("Mmmmm", "mmmmm@rrrrrr.net"),
+            ("Zzzzzz", "rrrrrrrrrrrrr@ttttttttt.net"),
+            ("Xyz", "qqqqqqqqqq@rrrrrr.net"),
+            ("", "geug@ttttttttt.de"),
+            ("qqqqqq", "q@iiiiiii.org"),
+            ("bbbb", "bbbb@iiiiiii.org"),
+            ("", "fsfs@iiiiiii.org"),
+            ("rqrqrqrqr", "rqrqr@iiiiiii.org"),
+            ("tttttttt", "tttttttt@iiiiiii.org"),
+            ("", "tttttt@rrrrrr.net"),
+        ];
+        let mut to = Vec::new();
+        for (name, addr) in to_tuples {
+            if name.is_empty() {
+                to.push(Address::new_mailbox(addr.to_string()));
+            } else {
+                to.push(Address::new_mailbox_with_name(
+                    name.to_string(),
+                    addr.to_string(),
+                ));
+            }
+        }
+
+        let mut message = MimeMessage::new_blank_message();
+        message.headers.insert(
+            (
+                "Content-Type".to_string(),
+                "text/plain; charset=utf-8; format=flowed; delsp=no".to_string(),
+            )
+                .into(),
+        );
+        message
+            .headers
+            .insert(Header::new_with_value("To".into(), to).unwrap());
+        message.body = "Hi".to_string();
+
+        println!("======= HEADERS BEFORE CALL TO AS_STRING: =======");
+        for h in message.headers.iter() {
+            println!("{}", h.to_string());
+        }
+        let msg = message.as_string(); // <-- seems like here the empty line is introduced
+
+        let header_end = msg.find("Hi").unwrap();
+        let headers = msg[0..header_end].trim();
+        println!(
+            "======= HEADERS AFTER CALL TO AS_STRING: =======\n{}\n",
+            headers
+        );
+        assert!(!headers.lines().any(|l| l.trim().is_empty())); // <--  panics
+    }
 }
 
 #[cfg(all(feature = "nightly", test))]
