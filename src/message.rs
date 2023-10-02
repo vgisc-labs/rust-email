@@ -176,38 +176,39 @@ impl MimeMessage {
     /// Finally, update the `Content-Type` header with the `boundary`.
     /// It does not update the `message_type`
     pub fn update_headers(&mut self) {
-
+        // Since a single header can not be replace, clone all the headers
+        // except th `Content-Type`, which needs will be added later.
+        let mut headers = self.headers_without_content_type();
+        // Instead of returning the value of the `Content-Type` as a tuple,
+        // return it as String since it could have params.
+        let mut ct_value: String;
+        if let Some(message_type) = self.message_type {
+            // Use `message_type` as `Content-Type` if present
+            ct_value = message_type.to_string();
+        } else {
+            ct_value = match self.headers.get("Content-Type".to_string()) {
+                // Use `Content-Type` header if present
+                Some(ct_header) => ct_header.get_value().unwrap(),
+                // Or assume it is `multipart/mixed`.
+                None => MimeMultipartType::Mixed.to_string()
+            };
+        }
+        if let Some(directives) = self.headers.get("Content-Type-Deltachat-Directives".to_string()) {
+            let directives: String = directives.get_value().unwrap();
+            ct_value = format!("{ct_value}; {directives}");
+        }
         if self.children.len() > 0 {
-            // Since a single header can not be replace, clone all the headers
-            // except th `Content-Type`, which needs will be added later.
-            let mut headers = self.headers_without_content_type();
-            // Instead of returning the value of the `Content-Type` as a tuple,
-            // return it as String since it could have params.
-            let ct_value: String;
-            if let Some(message_type) = self.message_type {
-                // Use `message_type` as `Content-Type` if present
-                ct_value = message_type.to_string();
-            } else {
-                ct_value = match self.headers.get("Content-Type".to_string()) {
-                    // Use `Content-Type` header if present
-                    Some(ct_header) => ct_header.get_value().unwrap(),
-                    // Or assume it is `multipart/mixed`.
-                    None => MimeMultipartType::Mixed.to_string()
-                };
-            }
             // Insert the boundary param in the `Content-Type` header.
             // A MimeContentTypeHeader could be created, but it is
             // converted back to string when inserted into the headers
-            let ct_value_boundary = format!("{}; {}=\"{}\"",
+            ct_value = format!("{}; {}=\"{}\"",
                                             ct_value, "boundary".to_string(),
                                             self.boundary.clone());
-            let header = Header::new("Content-Type".to_string(),
-                                     ct_value_boundary);
-            // Add the `Content-Type` with the boundary.
-            headers.insert(header);
-            // And replace all the headers.
-            self.headers = headers;
         }
+        let header = Header::new("Content-Type".to_string(), ct_value);
+        headers.insert(header);
+        // And replace all the headers.
+        self.headers = headers;
     }
 
     /// Returns a copy of the headers without the `Content-Type` header.
