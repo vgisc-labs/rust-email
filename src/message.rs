@@ -1,12 +1,7 @@
-
-use super::header::{HeaderMap, Header};
-use super::rfc5322::{Rfc5322Parser, Rfc5322Builder};
-use super::results::{ParsingResult,ParsingError};
-use super::mimeheaders::{
-    MimeContentType,
-    MimeContentTypeHeader,
-    MimeContentTransferEncoding
-};
+use super::header::{Header, HeaderMap};
+use super::mimeheaders::{MimeContentTransferEncoding, MimeContentType, MimeContentTypeHeader};
+use super::results::{ParsingError, ParsingResult};
+use super::rfc5322::{Rfc5322Builder, Rfc5322Parser};
 
 use std::collections::HashMap;
 use std::fmt;
@@ -14,13 +9,13 @@ use std::fmt;
 use encoding::label::encoding_from_whatwg_label;
 use encoding::DecoderTrap;
 
-use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 
 const BOUNDARY_LENGTH: usize = 30;
 
 /// Marks the type of a multipart message
-#[derive(Eq,PartialEq,Debug,Clone,Copy)]
+#[derive(Eq, PartialEq, Debug, Clone, Copy)]
 pub enum MimeMultipartType {
     /// Entries which are independent.
     ///
@@ -67,9 +62,9 @@ impl MimeMultipartType {
     }
 
     /// Returns a MimeContentType that represents this multipart type.
-    pub fn to_content_type(&self) -> MimeContentType {
+    pub fn to_content_type(self) -> MimeContentType {
         let multipart = "multipart".to_string();
-        match *self {
+        match self {
             MimeMultipartType::Mixed => (multipart, "mixed".to_string()),
             MimeMultipartType::Alternative => (multipart, "alternative".to_string()),
             MimeMultipartType::Digest => (multipart, "digest".to_string()),
@@ -89,7 +84,7 @@ impl fmt::Display for MimeMultipartType {
 
 /// Represents a MIME message
 /// [unstable]
-#[derive(Eq,PartialEq,Debug,Clone)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub struct MimeMessage {
     /// The headers for this message
     pub headers: HeaderMap,
@@ -118,7 +113,8 @@ impl MimeMessage {
         let mut rng = thread_rng();
         std::iter::repeat(())
             .map(|()| rng.sample(Alphanumeric))
-            .take(BOUNDARY_LENGTH).collect()
+            .take(BOUNDARY_LENGTH)
+            .collect()
     }
 
     /// [unstable]
@@ -129,7 +125,11 @@ impl MimeMessage {
         message
     }
 
-    pub fn new_with_children(body: String, message_type: MimeMultipartType, children: Vec<MimeMessage>) -> MimeMessage {
+    pub fn new_with_children(
+        body: String,
+        message_type: MimeMultipartType,
+        children: Vec<MimeMessage>,
+    ) -> MimeMessage {
         let mut message = MimeMessage::new_blank_message();
         message.body = body;
         message.message_type = Some(message_type);
@@ -138,10 +138,12 @@ impl MimeMessage {
         message
     }
 
-    pub fn new_with_boundary(body: String,
-                             message_type: MimeMultipartType,
-                             children: Vec<MimeMessage>,
-                             boundary: String) -> MimeMessage {
+    pub fn new_with_boundary(
+        body: String,
+        message_type: MimeMultipartType,
+        children: Vec<MimeMessage>,
+        boundary: String,
+    ) -> MimeMessage {
         let mut message = MimeMessage::new_blank_message();
         message.body = body;
         message.message_type = Some(message_type);
@@ -190,20 +192,26 @@ impl MimeMessage {
                 // Use `Content-Type` header if present
                 Some(ct_header) => ct_header.get_value().unwrap(),
                 // Or assume it is `multipart/mixed`.
-                None => MimeMultipartType::Mixed.to_string()
+                None => MimeMultipartType::Mixed.to_string(),
             };
         }
-        if let Some(directives) = self.headers.get("Content-Type-Deltachat-Directives".to_string()) {
+        if let Some(directives) = self
+            .headers
+            .get("Content-Type-Deltachat-Directives".to_string())
+        {
             let directives: String = directives.get_value().unwrap();
             ct_value = format!("{ct_value}; {directives}");
         }
-        if self.children.len() > 0 {
+        if !self.children.is_empty() {
             // Insert the boundary param in the `Content-Type` header.
             // A MimeContentTypeHeader could be created, but it is
             // converted back to string when inserted into the headers
-            ct_value = format!("{}; {}=\"{}\"",
-                                            ct_value, "boundary".to_string(),
-                                            self.boundary.clone());
+            ct_value = format!(
+                "{}; {}=\"{}\"",
+                ct_value,
+                "boundary".to_string(),
+                self.boundary.clone()
+            );
         }
         let header = Header::new("Content-Type".to_string(), ct_value);
         headers.insert(header);
@@ -217,7 +225,9 @@ impl MimeMessage {
     /// all the headers except that one and then adding it.
     fn headers_without_content_type(&self) -> HeaderMap {
         let mut header_map = HeaderMap::new();
-        let headers: Vec<&Header> = self.headers.iter()
+        let headers: Vec<&Header> = self
+            .headers
+            .iter()
             .filter(|header| !header.to_string().starts_with("Content-Type"))
             .collect();
         for header in headers {
@@ -236,7 +246,9 @@ impl MimeMessage {
         let mut parser = Rfc5322Parser::new(s);
         match parser.consume_message() {
             Some((headers, body)) => MimeMessage::from_headers(headers, body),
-            None => Err(ParsingError::new("Couldn't parse MIME message.".to_string()))
+            None => Err(ParsingError::new(
+                "Couldn't parse MIME message.".to_string(),
+            )),
         }
     }
 
@@ -261,14 +273,9 @@ impl MimeMessage {
     fn as_string_without_headers_internal(&self, mut builder: Rfc5322Builder) -> String {
         builder.emit_raw(&format!("{}\r\n", self.body)[..]);
 
-        if self.children.len() > 0 {
-
+        if !self.children.is_empty() {
             for part in self.children.iter() {
-                builder.emit_raw(
-                    &format!("--{}\r\n{}\r\n",
-                            self.boundary,
-                            part.as_string())[..]
-                );
+                builder.emit_raw(&format!("--{}\r\n{}\r\n", self.boundary, part.as_string())[..]);
             }
 
             builder.emit_raw(&format!("--{}--\r\n", self.boundary)[..]);
@@ -279,9 +286,10 @@ impl MimeMessage {
 
     /// Decode the body of this message, as a series of bytes
     pub fn decoded_body_bytes(&self) -> Option<Vec<u8>> {
-        let transfer_encoding: MimeContentTransferEncoding =
-            self.headers.get_value("Content-Transfer-Encoding".to_string())
-                        .unwrap_or(MimeContentTransferEncoding::Identity);
+        let transfer_encoding: MimeContentTransferEncoding = self
+            .headers
+            .get_value("Content-Transfer-Encoding".to_string())
+            .unwrap_or(MimeContentTransferEncoding::Identity);
         transfer_encoding.decode(&self.body)
     }
 
@@ -290,9 +298,14 @@ impl MimeMessage {
     /// This takes into account any charset as set on the `Content-Type` header,
     /// decoding the bytes with this character set.
     pub fn decoded_body_string(&self) -> ParsingResult<String> {
-        let bytes = match self.decoded_body_bytes() {  // FIXME
+        let bytes = match self.decoded_body_bytes() {
+            // FIXME
             Some(x) => x,
-            None => return Err(ParsingError::new("Unable to get decoded body bytes.".to_string()))
+            None => {
+                return Err(ParsingError::new(
+                    "Unable to get decoded body bytes.".to_string(),
+                ))
+            }
         };
 
         let content_type: Result<MimeContentTypeHeader, _> =
@@ -300,30 +313,31 @@ impl MimeMessage {
         let charset = match content_type {
             Ok(ct) => ct.params.get(&"charset".to_string()).cloned(),
             Err(_) => None,
-        }.unwrap_or("us-ascii".to_string());
+        }
+        .unwrap_or_else(|| "us-ascii".to_string());
 
         match encoding_from_whatwg_label(&charset[..]) {
             Some(decoder) => match decoder.decode(&bytes, DecoderTrap::Replace) {
                 Ok(x) => Ok(x),
-                Err(e) => Err(ParsingError::new(format!("Unable to decode body: {}", e)))
+                Err(e) => Err(ParsingError::new(format!("Unable to decode body: {}", e))),
             },
-            None => Err(ParsingError::new(format!("Invalid encoding: {}", charset)))
+            None => Err(ParsingError::new(format!("Invalid encoding: {}", charset))),
         }
     }
 
     // Make a message from a header map and body, parsing out any multi-part
     // messages that are discovered by looking at the Content-Type header.
     fn from_headers(headers: HeaderMap, body: String) -> ParsingResult<MimeMessage> {
-        let content_type = try!({
+        let content_type = {
             let header = headers.get("Content-Type".to_string());
             match header {
                 Some(h) => h.get_value(),
                 None => Ok(MimeContentTypeHeader {
                     content_type: ("text".to_string(), "plain".to_string()),
                     params: HashMap::new(),
-                })
+                }),
             }
-        });
+        }?;
 
         // Pull out the major mime type and the boundary (if it exists)
         let (mime_type, sub_mime_type) = content_type.content_type;
@@ -336,22 +350,32 @@ impl MimeMessage {
                 // Pull apart the message on the boundary.
                 let mut parts = MimeMessage::split_boundary(&body, boundary);
                 // Pop off the first message, as it's part of the parent.
-                let pre_body = if parts.is_empty() { "".to_string() } else { parts.remove(0) };
+                let pre_body = if parts.is_empty() {
+                    "".to_string()
+                } else {
+                    parts.remove(0)
+                };
                 // Parse out each of the child parts, recursively downwards.
                 // Filtering out and unwrapping None as we go.
                 let message_parts: Vec<MimeMessage> = parts
                     .iter()
                     .filter_map(|part| match MimeMessage::parse(&part[..]) {
                         Ok(x) => Some(x),
-                        Err(_) => None
+                        Err(_) => None,
                     })
                     .collect();
                 // It should be safe to unwrap the multipart type here because we know the main
                 // mimetype is "multipart"
-                let multipart_type = MimeMultipartType::from_content_type((mime_type, sub_mime_type)).unwrap();
+                let multipart_type =
+                    MimeMultipartType::from_content_type((mime_type, sub_mime_type)).unwrap();
 
-                MimeMessage::new_with_boundary(pre_body, multipart_type, message_parts, boundary.clone())
-            },
+                MimeMessage::new_with_boundary(
+                    pre_body,
+                    multipart_type,
+                    message_parts,
+                    boundary.clone(),
+                )
+            }
             _ => MimeMessage::new(body),
         };
 
@@ -359,9 +383,8 @@ impl MimeMessage {
         Ok(message)
     }
 
-
     // Split `body` up on the `boundary` string.
-    fn split_boundary(body: &String, boundary: &String) -> Vec<String> {
+    fn split_boundary(body: &str, boundary: &str) -> Vec<String> {
         #[derive(Debug)]
         enum ParseState {
             Distinguished,
@@ -389,12 +412,8 @@ impl MimeMessage {
 
         for (pos, c) in body.char_indices() {
             state = match (state, c) {
-                (ParseState::ReadBoundary, '-') => {
-                    ParseState::Distinguished
-                },
-                (ParseState::Distinguished, '-') => {
-                    ParseState::DistinguishedEnd
-                },
+                (ParseState::ReadBoundary, '-') => ParseState::Distinguished,
+                (ParseState::Distinguished, '-') => ParseState::DistinguishedEnd,
                 (ParseState::BoundaryEnd, _) => {
                     // We're now out of a boundary, so remember where the end is,
                     // so we can slice from the end of this boundary to the start of the next.
@@ -404,24 +423,24 @@ impl MimeMessage {
                     } else {
                         ParseState::Normal
                     }
-                },
+                }
                 (ParseState::DistinguishedEnd, '\r') | (ParseState::DistinguishedEnd, '\n') => {
                     let read_boundary = body_slice[(boundary_start + 1)..(pos - 2)].trim();
-                    if &read_boundary.to_string() == boundary {
+                    if read_boundary == boundary {
                         // Boundary matches, push the part
                         // The part is from the last boundary's end to this boundary's beginning
                         let part = &body_slice[boundary_end..(boundary_start - 1)];
                         parts.push(part.to_string());
                         done = true;
-                        break
+                        break;
                     } else {
                         // This isn't our boundary, so leave it.
                         ParseState::Normal
                     }
-                },
+                }
                 (ParseState::ReadBoundary, '\r') | (ParseState::ReadBoundary, '\n') => {
                     let read_boundary = body_slice[(boundary_start + 1)..pos].trim();
-                    if &read_boundary.to_string() == boundary {
+                    if read_boundary == boundary {
                         // Boundary matches, push the part
                         // The part is from the last boundary's end to this boundary's beginning
                         let part = &body_slice[boundary_end..(boundary_start - 1)];
@@ -432,14 +451,14 @@ impl MimeMessage {
                         // This isn't our boundary, so leave it.
                         ParseState::Normal
                     }
-                },
+                }
                 (ParseState::ReadBoundary, _) => ParseState::ReadBoundary,
                 (_, '\n') => ParseState::SeenLf,
                 (_, '\r') => ParseState::SeenCr,
                 (ParseState::SeenDash, '-') => {
                     boundary_start = pos;
                     ParseState::ReadBoundary
-                },
+                }
                 (ParseState::SeenLf, '-') => ParseState::SeenDash,
                 (ParseState::Normal, _) => ParseState::Normal,
                 (_, _) => ParseState::Normal,
@@ -449,20 +468,19 @@ impl MimeMessage {
         if !done {
             // Push in the final part of the message (what remains)
             let final_part = &body_slice[boundary_end..];
-            if final_part.trim().len() != 0 {
+            if !final_part.trim().is_empty() {
                 parts.push(final_part.to_string());
             }
         }
 
         parts
     }
-
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::header::{Header, HeaderMap};
     use super::*;
-    use super::super::header::{Header,HeaderMap};
 
     #[derive(Debug)]
     struct MessageTestResult<'s> {
@@ -478,7 +496,6 @@ mod tests {
                 let header = Header::new(name.to_string(), value.to_string());
                 headers.insert(header);
             }
-
 
             let header_match = headers == other.headers;
             let body_match = self.body.to_string() == other.body;
@@ -519,16 +536,12 @@ mod tests {
             ParseTest {
                 input: "From: joe@example.org\r\nTo: john@example.org\r\n\r\nHello!",
                 output: Some(MessageTestResult {
-                    headers: vec![
-                        ("From", "joe@example.org"),
-                        ("To", "john@example.org"),
-                    ],
+                    headers: vec![("From", "joe@example.org"), ("To", "john@example.org")],
                     body: "Hello!",
                     children: vec![],
                 }),
                 name: "Simple single part message parse",
             },
-
             ParseTest {
                 input: "From: joe@example.org\r\n\
                         To: john@example.org\r\n\
@@ -548,12 +561,12 @@ mod tests {
                     body: "Parent\r\n",
                     children: vec![
                         MessageTestResult {
-                            headers: vec![ ],
+                            headers: vec![],
                             body: "Hello!\r\n",
                             children: vec![],
                         },
                         MessageTestResult {
-                            headers: vec![ ],
+                            headers: vec![],
                             body: "Other\r\n",
                             children: vec![],
                         },
@@ -561,7 +574,6 @@ mod tests {
                 }),
                 name: "Simple multipart message parse",
             },
-
             ParseTest {
                 input: "From: joe@example.org\n\
                         To: john@example.org\n\
@@ -582,12 +594,12 @@ mod tests {
                     body: "\nParent\n",
                     children: vec![
                         MessageTestResult {
-                            headers: vec![ ],
+                            headers: vec![],
                             body: "Hello!\n",
                             children: vec![],
                         },
                         MessageTestResult {
-                            headers: vec![ ],
+                            headers: vec![],
                             body: "Other\n",
                             children: vec![],
                         },
@@ -595,7 +607,6 @@ mod tests {
                 }),
                 name: "Unix line ending multipart message parse",
             },
-
             ParseTest {
                 input: "From: joe@example.org\r\n\
                         To: john@example.org\r\n\
@@ -621,25 +632,23 @@ mod tests {
                     body: "Parent\r\n",
                     children: vec![
                         MessageTestResult {
-                            headers: vec![
-                                ("Content-Type", "multipart/alternative; boundary=bar"),
-                            ],
+                            headers: vec![("Content-Type", "multipart/alternative; boundary=bar")],
                             body: "",
                             children: vec![
                                 MessageTestResult {
-                                    headers: vec![ ],
+                                    headers: vec![],
                                     body: "Hello!\r\n",
                                     children: vec![],
                                 },
                                 MessageTestResult {
-                                    headers: vec![ ],
+                                    headers: vec![],
                                     body: "Other\r\n",
                                     children: vec![],
                                 },
                             ],
                         },
                         MessageTestResult {
-                            headers: vec![ ],
+                            headers: vec![],
                             body: "Outside\r\n",
                             children: vec![],
                         },
@@ -669,12 +678,12 @@ mod tests {
                     body: "\nParent\n",
                     children: vec![
                         MessageTestResult {
-                            headers: vec![ ],
+                            headers: vec![],
                             body: "Hello!\n",
                             children: vec![],
                         },
                         MessageTestResult {
-                            headers: vec![ ],
+                            headers: vec![],
                             body: "Other\n",
                             children: vec![],
                         },
@@ -797,7 +806,7 @@ mod tests {
             }
             let mut message = MimeMessage::new(test.body.to_string());
             message.headers = headers;
-            let expected = test.result.map(|s| { s.to_string() });
+            let expected = test.result.map(|s| s.to_string());
             assert_eq!(message.decoded_body_string().ok(), expected);
         }
     }
@@ -849,7 +858,10 @@ mod tests {
         for test in tests.into_iter() {
             let (major_type, minor_type) = test.mime_type;
             assert_eq!(
-                MimeMultipartType::from_content_type((major_type.to_string(), minor_type.to_string())),
+                MimeMultipartType::from_content_type((
+                    major_type.to_string(),
+                    minor_type.to_string()
+                )),
                 test.result
             );
         }
@@ -859,12 +871,30 @@ mod tests {
     fn test_multipart_type_to_content_type() {
         let multipart = "multipart".to_string();
 
-        assert_eq!(MimeMultipartType::Mixed.to_content_type(),     (multipart.clone(), "mixed".to_string()));
-        assert_eq!(MimeMultipartType::Alternative.to_content_type(), (multipart.clone(), "alternative".to_string()));
-        assert_eq!(MimeMultipartType::Digest.to_content_type(),    (multipart.clone(), "digest".to_string()));
-        assert_eq!(MimeMultipartType::Encrypted.to_content_type(),    (multipart.clone(), "encrypted".to_string()));
-        assert_eq!(MimeMultipartType::Parallel.to_content_type(),  (multipart.clone(), "parallel".to_string()));
-        assert_eq!(MimeMultipartType::Signed.to_content_type(),    (multipart.clone(), "signed".to_string()));
+        assert_eq!(
+            MimeMultipartType::Mixed.to_content_type(),
+            (multipart.clone(), "mixed".to_string())
+        );
+        assert_eq!(
+            MimeMultipartType::Alternative.to_content_type(),
+            (multipart.clone(), "alternative".to_string())
+        );
+        assert_eq!(
+            MimeMultipartType::Digest.to_content_type(),
+            (multipart.clone(), "digest".to_string())
+        );
+        assert_eq!(
+            MimeMultipartType::Encrypted.to_content_type(),
+            (multipart.clone(), "encrypted".to_string())
+        );
+        assert_eq!(
+            MimeMultipartType::Parallel.to_content_type(),
+            (multipart.clone(), "parallel".to_string())
+        );
+        assert_eq!(
+            MimeMultipartType::Signed.to_content_type(),
+            (multipart.clone(), "signed".to_string())
+        );
     }
 
     #[test]
@@ -876,12 +906,16 @@ mod tests {
 
     #[test]
     fn test_headers_without_content_type() {
-        let mime = MimeMessage::parse(
-            "Content-Type: multipart/signed; protocol=pgp-encrypted\nBody"
-        ).unwrap();
+        let mime =
+            MimeMessage::parse("Content-Type: multipart/signed; protocol=pgp-encrypted\nBody")
+                .unwrap();
         assert_eq!(mime.headers.len(), 1);
-        let ct_value: String = mime.headers.get("Content-Type".to_string())
-            .unwrap().get_value().unwrap();
+        let ct_value: String = mime
+            .headers
+            .get("Content-Type".to_string())
+            .unwrap()
+            .get_value()
+            .unwrap();
         assert_eq!(ct_value, "multipart/signed; protocol=pgp-encrypted");
         let headers = mime.headers_without_content_type();
         assert_eq!(headers.len(), 0);
@@ -915,14 +949,18 @@ Content-Disposition: inline; filename=\"encrypted.asc\"
         let mime = MimeMessage::parse(text).unwrap();
         assert_eq!(mime.message_type.unwrap(), MimeMultipartType::Encrypted);
         assert_eq!(mime.headers.len(), 5);
-        assert_eq!(mime.body,
-                   "This is an OpenPGP/MIME encrypted message \
-                    (RFC 4880 and 3156)\n");
+        assert_eq!(
+            mime.body,
+            "This is an OpenPGP/MIME encrypted message \
+                    (RFC 4880 and 3156)\n"
+        );
         assert_eq!(mime.children.len(), 2);
         // XXX: The original boundary should have been removed, lettre does it.
-        assert_eq!(mime.children[1].body,
-                   "-----BEGIN PGP MESSAGE-----\n\
-                    -----END PGP MESSAGE-----\n\n--boundary_encrypted--");
+        assert_eq!(
+            mime.children[1].body,
+            "-----BEGIN PGP MESSAGE-----\n\
+                    -----END PGP MESSAGE-----\n\n--boundary_encrypted--"
+        );
 
         // XXX: parse add extra new lines.
         assert_eq!(mime.children[0].body, "Version: 1\n\n");
@@ -933,32 +971,48 @@ Content-Disposition: inline; filename=\"encrypted.asc\"
         assert_eq!(mime.boundary, mime2.boundary);
         assert_eq!(mime.message_type, mime2.message_type);
 
-        let ct: String = mime.headers.get("Content-Type".to_string())
-            .unwrap().get_value().unwrap();
-        assert_eq!(ct,
-                   "multipart/encrypted; \
+        let ct: String = mime
+            .headers
+            .get("Content-Type".to_string())
+            .unwrap()
+            .get_value()
+            .unwrap();
+        assert_eq!(
+            ct,
+            "multipart/encrypted; \
                     protocol=\"application/pgp-encrypted\";\
-                    boundary=\"boundary_encrypted\"");
+                    boundary=\"boundary_encrypted\""
+        );
 
         // XXX: the space after `multipart` gets removed.
-        let ct2: String = mime2.headers.get("Content-Type".to_string())
-            .unwrap().get_value().unwrap();
-        assert_eq!(ct2,
-                   "multipart/encrypted;\
+        let ct2: String = mime2
+            .headers
+            .get("Content-Type".to_string())
+            .unwrap()
+            .get_value()
+            .unwrap();
+        assert_eq!(
+            ct2,
+            "multipart/encrypted;\
                     protocol=\"application/pgp-encrypted\";\
-                    boundary=\"boundary_encrypted\"");
+                    boundary=\"boundary_encrypted\""
+        );
 
-        assert_eq!(format!("{}\r\n\r\n", mime.children[0].body),
-            mime2.children[0].body);
-        assert_eq!(mime.children[1].body,
-            format!("{}--boundary_encrypted--", mime2.children[1].body));
+        assert_eq!(
+            format!("{}\r\n\r\n", mime.children[0].body),
+            mime2.children[0].body
+        );
+        assert_eq!(
+            mime.children[1].body,
+            format!("{}--boundary_encrypted--", mime2.children[1].body)
+        );
     }
 
     #[test]
     fn test_no_empty_line_in_header() {
         use crate::Address;
-        use MimeMessage;
         use Header;
+        use MimeMessage;
         let to_tuples = vec![
             ("Nnnn", "nnn@ttttttttt.de"),
             ("😀 ttttttt", "ttttttt@rrrrrr.net"),
@@ -1024,7 +1078,7 @@ mod bench {
     use super::*;
 
     macro_rules! bench_parser {
-        ($name:ident, $test:expr) => (
+        ($name:ident, $test:expr) => {
             #[bench]
             fn $name(b: &mut Bencher) {
                 let s = $test;
@@ -1032,11 +1086,15 @@ mod bench {
                     let _ = MimeMessage::parse(s);
                 });
             }
-        );
+        };
     }
 
-    bench_parser!(bench_simple, "From: joe@example.org\r\nTo: john@example.org\r\n\r\nHello!");
-    bench_parser!(bench_simple_multipart,
+    bench_parser!(
+        bench_simple,
+        "From: joe@example.org\r\nTo: john@example.org\r\n\r\nHello!"
+    );
+    bench_parser!(
+        bench_simple_multipart,
         "From: joe@example.org\r\n\
          To: john@example.org\r\n\
          Content-Type: multipart/alternative; boundary=foo\r\n\
@@ -1048,7 +1106,8 @@ mod bench {
          Other\r\n\
          --foo"
     );
-    bench_parser!(bench_deep_multipart,
+    bench_parser!(
+        bench_deep_multipart,
         "From: joe@example.org\r\n\
          To: john@example.org\r\n\
          Content-Type: multipart/mixed; boundary=foo\r\n\

@@ -162,10 +162,7 @@ impl Header {
     /// Creates a new Header for the given `name` and `value`
     /// [unstable]
     pub fn new(name: String, value: String) -> Header {
-        Header {
-            name: name,
-            value: value,
-        }
+        Header { name, value }
     }
 
     /// Creates a new Header for the given `name` and `value`,
@@ -201,7 +198,7 @@ pub struct HeaderIter<'s> {
 impl<'s> HeaderIter<'s> {
     /// [unstable]
     fn new(iter: SliceIter<'s, Arc<Header>>) -> HeaderIter<'s> {
-        HeaderIter { iter: iter }
+        HeaderIter { iter }
     }
 }
 
@@ -252,13 +249,13 @@ impl HeaderMap {
         // and to the mapping between header names and values.
         match self.headers.entry(header_name) {
             Entry::Occupied(mut entry) => {
-                entry.get_mut().push(rc.clone());
+                entry.get_mut().push(rc);
             }
             Entry::Vacant(entry) => {
                 // There haven't been any headers with this name
                 // as of yet, so make a new list and push it in.
                 let mut header_list = Vec::new();
-                header_list.push(rc.clone());
+                header_list.push(rc);
                 entry.insert(header_list);
             }
         };
@@ -338,13 +335,23 @@ impl HeaderMap {
         self.ordered_headers.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// [unstable]
     /// Find a list of headers of `name`, `None` if there
     /// are no headers with that name.
-    pub fn find(&self, name: &String) -> Option<Vec<&Header>> {
+    pub fn find(&self, name: &str) -> Option<Vec<&Header>> {
         self.headers
             .get(name)
             .map(|rcs| rcs.iter().map(|rc| rc.deref()).collect())
+    }
+}
+
+impl Default for HeaderMap {
+    fn default() -> Self {
+        HeaderMap::new()
     }
 }
 
